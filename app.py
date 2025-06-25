@@ -4,9 +4,12 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error, r2_score
+from sklearn.metrics import mean_absolute_error, r2_score, roc_curve, auc, silhouette_samples
 from sklearn.calibration import calibration_curve
 from sklearn.preprocessing import LabelEncoder
+from sklearn.cluster import KMeans
+from sklearn.inspection import PartialDependenceDisplay, permutation_importance
+from sklearn.tree import plot_tree, export_text
 import joblib
 import os
 from pathlib import Path
@@ -14,6 +17,8 @@ from datetime import datetime
 import time 
 import random 
 import logging
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 from flaml import AutoML 
 
@@ -192,8 +197,8 @@ class HybridRecommender:
 
 def calculate_water_cost(df, cost_per_m3=0.45, consumption_per_ha=5000):
     logger.info("Calculating water costs.")
-    df_copy = df.copy() # Ensure working on a copy
-    df_copy.loc[:, 'coste_agua'] = df_copy['regadio_hectareas'] * consumption_per_ha * cost_per_m3
+    df_copy = df.copy()
+    df_copy['coste_agua'] = df_copy['regadio_hectareas'] * consumption_per_ha * cost_per_m3
     return df_copy
 
 def plot_calibration_curve(y_true, y_pred, n_bins=10):
@@ -234,23 +239,21 @@ def plot_calibration_curve(y_true, y_pred, n_bins=10):
 
 def plot_roc_analysis(df, threshold=0.5):
     logger.info("Generating ROC analysis.")
-    df_copy = df.copy() 
+    df_copy = df.copy()
 
-    # FIX for SettingWithCopyWarning using .loc
     max_superficie = df_copy['superficie_cultivada_hectareas'].max()
     if max_superficie > 0:
-        df_copy.loc[:, 'riesgo'] = np.where(
+        df_copy['riesgo'] = np.where(
             df_copy['superficie_cultivada_hectareas'] > threshold * max_superficie, 
             1, 
             0
         )
     else:
-        df_copy.loc[:, 'riesgo'] = 0 
+        df_copy['riesgo'] = 0 
     logger.info("Risk variable calculated for ROC analysis.")
     
     np.random.seed(42)
-    # FIX for SettingWithCopyWarning using .loc
-    df_copy.loc[:, 'prediccion_riesgo'] = np.random.rand(len(df_copy))
+    df_copy['prediccion_riesgo'] = np.random.rand(len(df_copy))
     logger.info("Dummy risk prediction generated.")
     
     thresholds = np.linspace(0, 1, 100)
@@ -375,8 +378,8 @@ def automl_training_flaml(df):
             logger.warning(f"Target variable '{target}' has no variation ({df_ml[target].nunique()} unique values).")
             return False, f"The target variable '{target}' has no variation. FLAML cannot train a regressor.", None
 
-        df_ml.loc[:, 'grupo_de_cultivo'] = df_ml['grupo_de_cultivo'].astype('category')
-        df_ml.loc[:, 'cultivo'] = df_ml['cultivo'].astype('category')
+        df_ml['grupo_de_cultivo'] = df_ml['grupo_de_cultivo'].astype('category')
+        df_ml['cultivo'] = df_ml['cultivo'].astype('category')
         logger.info("Categorical features converted for FLAML.")
 
         X = df_ml[features]
@@ -398,18 +401,16 @@ def automl_training_flaml(df):
             X_train, 
             y_train, 
             task='regression', 
-            time_budget=120, # 2 minutes (120 seconds), adjust as needed
+            time_budget=120,
             metric='mae', 
             log_file_name="flaml_training.log"
         )
         logger.info("FLAML AutoML fit finished.")
         
-        # Check if a model was actually found and fitted by FLAML
         if automl.model is None: 
             logger.error("FLAML.model is None after fitting. No model was found or fitted.")
             return False, "FLAML did not find or fit a suitable model within the given time budget. Try increasing 'time_budget' or check data for issues.", None
         
-        # Verify the predict method exists before calling it (defensive check)
         if not hasattr(automl, 'predict') or not callable(automl.predict):
             logger.error("FLAML model object does not have a callable 'predict' method after training.")
             return False, "FLAML model object does not have a callable 'predict' method after training.", None
@@ -443,6 +444,26 @@ def main():
     yield_model = get_yield_model() 
     recommender = get_recommender(df)
 
+    # New sidebar content at the top
+    st.sidebar.markdown("""
+    <h2 style='text-align: center;'>🌾 Project Summary 🌾</h2>
+    """, unsafe_allow_html=True)
+    st.sidebar.info("""
+    **Valencia Agri-Insights Pro** is an advanced agricultural analytics platform that:
+    - Uses machine learning (Random Forest, AutoML with FLAML) to predict crop yields
+    - Provides crop similarity recommendations using hybrid algorithms
+    - Analyzes water costs and irrigation patterns
+    - Monitors model performance over time
+    - Includes advanced analytics like ROC analysis and clustering
+    """)
+    
+    st.sidebar.markdown("---")
+    st.sidebar.header("Participants:")
+    st.sidebar.markdown("- Víctor Máñez Poveda")
+    st.sidebar.markdown("- Óscar García Martínez")
+    st.sidebar.markdown("- Yasmin Serena Diaconu")
+    st.sidebar.markdown("---")
+
     st.sidebar.header("Global Configuration")
     if not df['año'].empty:
         selected_year = st.sidebar.selectbox("Reference Year", sorted(df['año'].unique()), index=len(df['año'].unique())-1, key='sidebar_ref_year')
@@ -454,13 +475,14 @@ def main():
     cost_per_m3 = st.sidebar.slider("Water Cost (€/m³)", 0.1, 1.0, 0.45, 0.05, key='sidebar_water_cost')
     water_per_ha = st.sidebar.slider("Water Consumption (m³/ha)", 1000, 10000, 5000, 100, key='sidebar_water_cons')
     
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "📊 Dashboard", 
         "🔮 Predictions", 
         "💡 Recommendations", 
         "💰 Cost Analysis", 
         "📈 Model Evaluation",
-        "🔍 Monitoring"
+        "🔍 Monitoring",
+        "🧠 Advanced Analytics"
     ])
     
     with tab1:
@@ -499,7 +521,9 @@ def main():
     with tab2:
         st.header("Predictive Models")
         
-        if st.button("Train Default Yield Model (Random Forest)", key='train_default_model_btn'):
+        if st.button("Train Default Yield Model (Random Forest)", key='train_default_model_btn') or st.session_state.get('force_train', False):
+            if 'force_train' in st.session_state:
+                del st.session_state['force_train']
             logger.info("User clicked 'Train Default Yield Model'.")
             with st.spinner("Training default model..."):
                 mae, r2, y_test, y_pred = yield_model.train(df)
@@ -770,20 +794,112 @@ def main():
             st.info("No monitoring data file found. Predictions will be logged once you start making them.")
             logger.info("Monitoring predictions file not found.")
     
-    st.sidebar.markdown("---")
-    st.sidebar.header("About the Project")
-    st.sidebar.info("""
-    **Valencia Agri-Insights Pro** Advanced application for sustainable urban agricultural management  
-    Integrates:  
-    - Predictive models  
-    - Recommendation systems  
-    - Cost analysis  
-    - Continuous monitoring  
-    """)
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("**Developed by:** Yasmin Serena Diaconu, Óscar García Martínez y Víctor Mañez Poveda")
-    st.sidebar.markdown("**Repository:** [GitHub](https://github.com/tuequipo)")
-    st.sidebar.markdown("**Demo Video:** [YouTube](https://youtube.com/tuequipo)")
+    with tab7:
+        st.header("Advanced Analytics")
+        logger.info("Displaying Advanced Analytics tab.")
+        
+        st.subheader("Bias-Variance Tradeoff Analysis")
+        try:
+            complexity = np.linspace(1, 10, 10)
+            bias = 1 / np.sqrt(complexity)
+            variance = complexity / 10
+            
+            fig_bias_var = go.Figure()
+            fig_bias_var.add_trace(go.Scatter(x=complexity, y=bias, name='Bias', line=dict(color='red')))
+            fig_bias_var.add_trace(go.Scatter(x=complexity, y=variance, name='Variance', line=dict(color='blue')))
+            fig_bias_var.add_trace(go.Scatter(x=complexity, y=bias+variance, name='Total Error', line=dict(color='green', dash='dash')))
+            
+            fig_bias_var.update_layout(
+                title='Bias-Variance Tradeoff (Simulated)',
+                xaxis_title='Model Complexity',
+                yaxis_title='Error',
+                showlegend=True
+            )
+            st.plotly_chart(fig_bias_var, use_container_width=True)
+            logger.info("Bias-variance tradeoff plot displayed.")
+        except Exception as e:
+            st.error(f"Could not generate bias-variance plot: {str(e)}")
+            logger.error(f"Error in bias-variance plot: {str(e)}")
+        
+        st.subheader("ROC Space Analysis")
+        try:
+            if not df.empty:
+                # Crear target binario eliminando NaN primero
+                df_clean = df.dropna(subset=['superficie_cultivada_hectareas'])
+                if len(df_clean) > 0:
+                    median_val = df_clean['superficie_cultivada_hectareas'].median()
+                    y_true = (df_clean['superficie_cultivada_hectareas'] > median_val).astype(int)
+                    
+                    # Generar clasificadores con datos limpios
+                    classifiers = {
+                        'Random': np.random.rand(len(df_clean)),
+                        'Good': np.where(df_clean['superficie_cultivada_hectareas'] > median_val, 
+                                        np.random.uniform(0.6, 1.0, len(df_clean)),
+                                        np.random.uniform(0.0, 0.4, len(df_clean))),
+                        'Poor': np.where(df_clean['superficie_cultivada_hectareas'] > median_val, 
+                                        np.random.uniform(0.4, 0.6, len(df_clean)),
+                                        np.random.uniform(0.4, 0.6, len(df_clean)))
+                    }
+                    
+                    fig_roc_space = go.Figure()
+                    fig_roc_space.add_trace(go.Scatter(x=[0, 1], y=[0, 1], 
+                                            mode='lines', name='Random', 
+                                            line=dict(dash='dash')))
+                    
+                    for name, y_score in classifiers.items():
+                        fpr, tpr, _ = roc_curve(y_true, y_score)
+                        roc_auc = auc(fpr, tpr)
+                        fig_roc_space.add_trace(go.Scatter(
+                            x=fpr, 
+                            y=tpr, 
+                            mode='lines', 
+                            name=f'{name} (AUC={roc_auc:.2f})'
+                        ))
+                    
+                    fig_roc_space.update_layout(
+                        title='ROC Space with Multiple Classifiers',
+                        xaxis_title='False Positive Rate',
+                        yaxis_title='True Positive Rate',
+                        showlegend=True
+                    )
+                    st.plotly_chart(fig_roc_space, use_container_width=True)
+                else:
+                    st.warning("No hay suficientes datos limpios para el análisis ROC")
+        except Exception as e:
+            st.error(f"Error en análisis ROC: {str(e)}")
+        
+        st.subheader("Silhouette Analysis")
+        try:
+            if not df.empty:
+                cluster_data = df[['secano_hectareas', 'regadio_hectareas']].dropna()
+                if len(cluster_data) > 1:
+                    cluster_data = (cluster_data - cluster_data.mean()) / cluster_data.std()
+                    
+                    silhouette_scores = []
+                    k_values = range(2, min(6, len(cluster_data)))
+                    
+                    for k in k_values:
+                        kmeans = KMeans(n_clusters=k, random_state=42)
+                        labels = kmeans.fit_predict(cluster_data)
+                        silhouette_avg = silhouette_samples(cluster_data, labels).mean()
+                        silhouette_scores.append(silhouette_avg)
+                    
+                    fig_silhouette = go.Figure()
+                    fig_silhouette.add_trace(go.Scatter(x=list(k_values), y=silhouette_scores,
+                                             mode='lines+markers'))
+                    
+                    fig_silhouette.update_layout(
+                        title='Silhouette Analysis for Optimal Clusters',
+                        xaxis_title='Number of Clusters',
+                        yaxis_title='Silhouette Score',
+                        showlegend=False
+                    )
+                    st.plotly_chart(fig_silhouette, use_container_width=True)
+                    logger.info("Silhouette analysis plot displayed.")
+        except Exception as e:
+            st.error(f"Could not generate silhouette analysis: {str(e)}")
+            logger.error(f"Error in silhouette analysis: {str(e)}")
+        
     logger.info("Streamlit app finished execution cycle.")
 
 if __name__ == "__main__":
