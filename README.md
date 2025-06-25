@@ -31,20 +31,20 @@ The application employs a variety of data science and machine learning technique
 
 ## Data Sources
 
-- [Valencia Open Data Portal Superficie Cultivada]((https://valencia.opendatasoft.com/explore/dataset/superficie-cultivada-cultivos/table/))
+- [Valencia Open Data Portal Superficie Cultivada](https://valencia.opendatasoft.com/explore/dataset/superficie-cultivada-cultivos/table/)
 
 
 ## How to Run
 
 1. **Install Requirements**
-2. 
+ 
 -pip install -r requeriments.txt
 
-3. **Run the Application**
-4. 
+2. **Run the Application**
+   
 -streamlit run app.py
 
-5. **Access the App**
+4. **Access the App**
 Open your browser at [http://localhost:8501](http://localhost:8501)
 
 ## Team
