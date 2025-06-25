@@ -33,8 +33,11 @@ The application employs a variety of data science and machine learning technique
 
 - [Valencia Open Data Portal Superficie Cultivada](https://valencia.opendatasoft.com/explore/dataset/superficie-cultivada-cultivos/table/)
 
+## How to Use the Web:
 
-## How to Run
+You must go to this Web URL: [vlc-agrostudy.streamlit.app/](https://vlc-agrostudy.streamlit.app/)
+
+## How to Download and Run
 
 1. **Install Requirements**
  
@@ -47,6 +50,10 @@ The application employs a variety of data science and machine learning technique
 4. **Access the App**
 Open your browser at [http://localhost:8501](http://localhost:8501)
 
+
+## Explanatory video:
+
+You can found the video on this Google Drive url: [Video](https://drive.google.com/file/d/1tvHXillkpd4HzUBJDfu6uNIgpRKWRBiK/view?usp=sharing)
 ## Team
 
 Developed by: Yasmin Serena Diaconu, Óscar García Martínez, Víctor Mañez Poveda
