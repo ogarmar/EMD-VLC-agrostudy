@@ -4,6 +4,6 @@ numpy
 plotly
 scikit-learn
 joblib
-flaml
+flaml[automl]
 matplotlib
 seaborn
